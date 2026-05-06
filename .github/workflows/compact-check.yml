@@ -1,0 +1,43 @@
+name: compact-check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  compact-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine base/head refs
+        id: refs
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
+              echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Run compact-check
+        if: steps.refs.outputs.skip != 'true'
+        run: |
+          chmod +x bin/compact-check
+          bin/compact-check "${{ steps.refs.outputs.base }}" "${{ steps.refs.outputs.head }}"
+
+      - name: First push to branch — skipping
+        if: steps.refs.outputs.skip == 'true'
+        run: echo "Branch creation / first push detected; nothing to diff against."
