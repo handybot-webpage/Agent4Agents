@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+!*.example
+!*.template
+
+# Build artifacts (none yet, future-proofing)
+node_modules/
+dist/
+build/
+*.log
+
+# gstack runtime artifacts (live in $HOME, but defensive)
+.gstack/
