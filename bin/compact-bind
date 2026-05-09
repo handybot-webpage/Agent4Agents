@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""compact-bind — extract a charter's deepest common parent directory for /freeze.
+
+Reads a Project Compact charter (markdown), parses the `## In-scope` section,
+and prints the deepest common parent directory of all in-scope globs. This
+is the directory to pass to gstack's `/freeze` skill at task start, per the
+charter→/freeze handshake in agent-context/05-bridge-protocol.md §10.1.
+
+Usage:
+  compact-bind                                    # default: agent-context/30-active-charter.md
+  compact-bind <path-to-charter.md>               # explicit path
+  compact-bind -                                  # read charter from stdin
+  compact-bind --invocation [path|-]              # print full `/freeze <dir>` command
+
+Exit codes:
+  0 — success; the parent directory is on stdout
+  1 — disjoint-roots case in a Tier 1 charter (charter is malformed,
+      see bridge protocol §10.1) or other rule violation
+  2 — bad arguments, missing/unreadable charter, no `## In-scope` section,
+      no in-scope entries
+
+Tier-2 charters with disjoint roots are tolerated: they print '.' (repo root)
+with a warning to stderr, and exit 0. The adversarial-review (`/codex`)
+catches out-of-scope edits at end-of-task.
+"""
+
+import os.path
+import re
+import sys
+from typing import List, Optional, Tuple
+
+CHARTER_DEFAULT = "agent-context/30-active-charter.md"
+WILDCARD_CHARS = ("*", "?", "[")
+TIER_RX = re.compile(r"^\s*\*\*Tier:\*\*\s*(\S+)", re.MULTILINE)
+HEADING_RX = re.compile(r"^##\s+(.+?)\s*$")
+BULLET_RX = re.compile(r"^\s*-\s+(.+?)\s*$")
+
+
+def read_charter(arg: Optional[str]) -> str:
+    """Read charter text from a path, '-' for stdin, or default location."""
+    path = arg if arg else CHARTER_DEFAULT
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        die(f"charter not found: {path}", code=2)
+    except OSError as e:
+        die(f"cannot read charter {path}: {e}", code=2)
+
+
+def parse_tier(text: str) -> str:
+    """Return the declared tier ('0', '1', '2'), or '?' if missing."""
+    m = TIER_RX.search(text)
+    return m.group(1).strip() if m else "?"
+
+
+def parse_in_scope(text: str) -> List[str]:
+    """Return the list of in-scope glob entries from the charter.
+
+    Charters are append-only within a task (per ADR-0002), so addenda
+    appear below the original. The LAST `## In-scope` section is
+    authoritative — earlier sections remain as history but are overridden
+    by the most recent declaration. Strips backticks and trailing
+    parenthetical comments from each entry.
+    """
+    sections: List[List[str]] = []
+    current: Optional[List[str]] = None
+    for line in text.splitlines():
+        h = HEADING_RX.match(line)
+        if h:
+            if h.group(1).strip().lower() == "in-scope":
+                current = []
+                sections.append(current)
+            else:
+                current = None
+            continue
+        if current is None:
+            continue
+        b = BULLET_RX.match(line)
+        if b:
+            item = b.group(1).strip().strip("`")
+            item = re.sub(r"\s*\([^)]*\)\s*$", "", item).strip()
+            if item:
+                current.append(item)
+    return sections[-1] if sections else []
+
+
+def glob_prefix_dir(glob: str) -> str:
+    """Return the deepest fixed directory of a glob.
+
+    Splits on '/', collects components until the first one containing a
+    wildcard. If all components are literal, drops the last (assumed
+    filename) and returns the dirname.
+
+    Examples:
+      bin/compact-bind         -> bin
+      src/auth/*.ts            -> src/auth
+      src/*/auth.ts            -> src
+      src/**/*.ts              -> src
+      *.md                     -> .
+      tests/                   -> tests
+    """
+    glob = glob.rstrip("/")
+    if not glob:
+        return "."
+    parts = glob.split("/")
+    safe: List[str] = []
+    has_wildcard = False
+    for p in parts:
+        if any(c in p for c in WILDCARD_CHARS):
+            has_wildcard = True
+            break
+        safe.append(p)
+    if not has_wildcard:
+        # Literal path: assume last component is filename, take dirname
+        safe = safe[:-1]
+    return "/".join(safe) if safe else "."
+
+
+def common_parent(dirs: List[str]) -> str:
+    """Longest common path prefix across a list of directories."""
+    if not dirs:
+        return "."
+    if len(dirs) == 1:
+        return dirs[0]
+    norm = [d if d else "." for d in dirs]
+    parts_lists = [d.split("/") for d in norm]
+    common: List[str] = []
+    for tup in zip(*parts_lists):
+        if len(set(tup)) == 1 and tup[0] != ".":
+            common.append(tup[0])
+        else:
+            break
+    return "/".join(common) if common else "."
+
+
+def die(msg: str, code: int = 2) -> None:
+    print(f"compact-bind: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def main(argv: List[str]) -> int:
+    invocation = False
+    args: List[str] = []
+    for a in argv[1:]:
+        if a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        if a == "--invocation":
+            invocation = True
+        else:
+            args.append(a)
+    if len(args) > 1:
+        die("at most one positional argument (charter path or '-')", code=2)
+
+    text = read_charter(args[0] if args else None)
+    tier = parse_tier(text)
+    entries = parse_in_scope(text)
+
+    if not entries:
+        die("no `## In-scope` entries found in charter", code=2)
+
+    dirs = [glob_prefix_dir(e) for e in entries]
+    parent = common_parent(dirs)
+
+    if parent == "." and tier == "1":
+        die(
+            f"in-scope globs span disjoint roots ({', '.join(dirs)}); "
+            f"Tier 1 charters must touch a single module — revise charter "
+            f"or escalate to Tier 2",
+            code=1,
+        )
+
+    if parent == ".":
+        # Tier 2 (or unknown) with disjoint roots
+        print(
+            f"compact-bind: warning — in-scope spans repo root "
+            f"({', '.join(dirs)}); /codex must verify out-of-scope edits",
+            file=sys.stderr,
+        )
+
+    if invocation:
+        print(f"/freeze {parent}/")
+    else:
+        print(parent)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
