@@ -5,4 +5,4 @@ on demand. Never edit existing lines; append new modules at the bottom.
 
 | Module | Path | Owner | MODULE.md |
 |---|---|---|---|
-| _(none yet)_ | | | |
+| vehicle-interior-cleaning | `benchmarks/vehicle-interior-cleaning/` | handybot-webpage | [MODULE.md](../benchmarks/vehicle-interior-cleaning/MODULE.md) |

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vic"
+version = "0.1.0"
+description = "Vehicle Interior Cleaning benchmark — embodied sweeping + grasping for mobile manipulators in vehicle cabins"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "handybot-webpage" }]
+license = { text = "TODO — pending project license ADR" }
+
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Development / metric dev — works on macOS / no GPU
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+# Isaac Sim runtime — Linux x86_64 + NVIDIA RTX only
+# Isaac Lab is installed via its own installer (./isaaclab.sh --install),
+# not pip. This extra documents the assumption rather than installing it.
+isaac = [
+    # Isaac Lab is not pip-installable from PyPI.
+    # See README.md "Install — host with Isaac Sim" for the real install.
+]
+
+[project.scripts]
+vic-eval = "vic.eval:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"
