@@ -1,0 +1,72 @@
+tasks:
+  sweep_floor:
+    description: Remove all small_debris and fabric_dust from the floor area into a containment bin
+    episode_seconds: 300
+    clutter:
+      small_debris: { min_count: 30, max_count: 80 }
+      fabric_dust:  { min_count: 5,  max_count: 15 }
+    placement_zones:
+      - floor_front
+      - floor_rear
+      - floor_mat
+    termination:
+      - all_collected
+      - time_elapsed
+    metrics_weight:
+      tcr: 0.4
+      se:  0.2
+      mq:  0.15
+      cp:  0.1
+      da:  0.15
+
+  pickup_objects:
+    description: Identify and grasp every medium_object, deposit in containment bin
+    episode_seconds: 300
+    clutter:
+      medium_object: { min_count: 3, max_count: 8 }
+    placement_zones:
+      - seat
+      - footwell
+      - cup_holder
+    termination:
+      - all_in_bin
+      - time_elapsed
+    metrics_weight:
+      tcr: 0.45
+      se:  0.1
+      mq:  0.15
+      cp:  0.1
+      da:  0.2
+
+  spot_clean_seat:
+    description: Wipe visible liquid_spill patches on seats below stain-coverage threshold
+    episode_seconds: 200
+    clutter:
+      liquid_spill: { min_count: 2, max_count: 4 }
+    placement_zones:
+      - seat
+    stain_threshold: 0.1   # patch coverage must drop below 10%
+    contact_force_target_n: 5.0
+    termination:
+      - all_below_threshold
+      - time_elapsed
+    metrics_weight:
+      tcr: 0.35
+      se:  0.1
+      mq:  0.2
+      cp:  0.1
+      da:  0.25
+
+  full_clean:
+    description: Composite of sweep_floor + pickup_objects + spot_clean_seat
+    episode_seconds: 600
+    clutter: { inherit: [sweep_floor, pickup_objects, spot_clean_seat] }
+    termination:
+      - all_subtask_complete
+      - time_elapsed
+    metrics_weight:
+      tcr: 0.35
+      se:  0.15
+      mq:  0.15
+      cp:  0.1
+      da:  0.25
